@@ -1,0 +1,51 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv/
+venv/
+.env
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Database
+*.db
+*.sqlite
+*.sql
+
+# Docker
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Secrets
+*.pem
+*.key
+*.cert
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node.js
+node_modules/
+package-lock.json
+
+# OS
+Thumbs.db

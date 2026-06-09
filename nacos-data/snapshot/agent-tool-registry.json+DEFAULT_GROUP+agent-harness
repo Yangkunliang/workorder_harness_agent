@@ -1,0 +1,144 @@
+[
+  {
+    "tool_id": "workorder_query",
+    "tool_name": "查询工单",
+    "request_schema": {
+      "type": "object",
+      "properties": {
+        "workorder_id": {
+          "type": "string",
+          "description": "工单编号"
+        },
+        "create_user": {
+          "type": "string",
+          "description": "创建人"
+        },
+        "status": {
+          "type": "string",
+          "description": "工单状态"
+        }
+      }
+    },
+    "target_url": "/api/internal/workorder/query",
+    "timeout": 5000,
+    "max_retry": 2,
+    "circuit_threshold": 5,
+    "permission_tags": [
+      "read"
+    ],
+    "qps_limit": 50,
+    "status": "active"
+  },
+  {
+    "tool_id": "workorder_create",
+    "tool_name": "新建工单",
+    "request_schema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "工单标题"
+        },
+        "content": {
+          "type": "string",
+          "description": "工单内容"
+        },
+        "create_user": {
+          "type": "string",
+          "description": "创建人"
+        }
+      },
+      "required": [
+        "title",
+        "content",
+        "create_user"
+      ]
+    },
+    "target_url": "/api/internal/workorder/create",
+    "timeout": 5000,
+    "max_retry": 2,
+    "circuit_threshold": 5,
+    "permission_tags": [
+      "write"
+    ],
+    "qps_limit": 20,
+    "status": "active"
+  },
+  {
+    "tool_id": "workorder_urge",
+    "tool_name": "工单催办",
+    "request_schema": {
+      "type": "object",
+      "properties": {
+        "workorder_id": {
+          "type": "string",
+          "description": "工单编号"
+        }
+      },
+      "required": [
+        "workorder_id"
+      ]
+    },
+    "target_url": "/api/internal/workorder/urge",
+    "timeout": 5000,
+    "max_retry": 2,
+    "circuit_threshold": 5,
+    "permission_tags": [
+      "write"
+    ],
+    "qps_limit": 10,
+    "status": "active"
+  },
+  {
+    "tool_id": "workorder_close",
+    "tool_name": "关闭工单",
+    "request_schema": {
+      "type": "object",
+      "properties": {
+        "workorder_id": {
+          "type": "string",
+          "description": "工单编号"
+        }
+      },
+      "required": [
+        "workorder_id"
+      ]
+    },
+    "target_url": "/api/internal/workorder/close",
+    "timeout": 5000,
+    "max_retry": 0,
+    "circuit_threshold": 3,
+    "permission_tags": [
+      "write",
+      "risk"
+    ],
+    "qps_limit": 5,
+    "status": "active"
+  },
+  {
+    "tool_id": "workorder_delete",
+    "tool_name": "删除工单",
+    "request_schema": {
+      "type": "object",
+      "properties": {
+        "workorder_id": {
+          "type": "string",
+          "description": "工单编号"
+        }
+      },
+      "required": [
+        "workorder_id"
+      ]
+    },
+    "target_url": "/api/internal/workorder/delete",
+    "timeout": 5000,
+    "max_retry": 0,
+    "circuit_threshold": 3,
+    "permission_tags": [
+      "write",
+      "risk"
+    ],
+    "qps_limit": 5,
+    "status": "active"
+  }
+]
