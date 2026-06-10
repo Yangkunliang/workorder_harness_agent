@@ -37,6 +37,7 @@ docker-compose.local.yml
 *.pem
 *.key
 *.cert
+.github-deploy.json
 
 # Testing
 .pytest_cache/
