@@ -10,6 +10,7 @@ from app.config.nacos_config import nacos_manager
 from app.database.session import init_database
 from app.database.redis_client import close_redis_client
 from app.api.routes import router
+from app.common.constants import SERVER_PORT
 
 
 @asynccontextmanager
@@ -66,7 +67,7 @@ async def lifespan(app: FastAPI):
     await setup_checkpointer()
     print("[Startup] LangGraph checkpointer 初始化完成")
 
-    print("[Startup] 服务启动完成，端口: 8090")
+    print(f"[Startup] 服务启动完成，端口: {port}")
     yield
 
     # 关闭阶段
@@ -91,9 +92,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 if __name__ == "__main__":
     import uvicorn
-    import os
     from dotenv import load_dotenv
 
     load_dotenv()
-    port = int(os.getenv("SERVER_PORT", "8000"))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
+    uvicorn.run("main:app", host="0.0.0.0", port=SERVER_PORT, reload=False)

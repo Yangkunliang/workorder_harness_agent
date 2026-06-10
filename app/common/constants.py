@@ -1,7 +1,17 @@
 """
 常量、枚举、错误码定义
 """
+import os
 from enum import Enum
+
+# ==================== 服务配置 ====================
+
+# 服务端口（优先从环境变量获取，默认8000）
+SERVER_PORT: int = int(os.getenv("SERVER_PORT", "8000"))
+
+# 服务基础URL
+SERVER_HOST: str = os.getenv("SERVER_HOST", "localhost")
+SERVER_URL: str = f"http://{SERVER_HOST}:{SERVER_PORT}"
 
 
 # ==================== 工单状态枚举 ====================

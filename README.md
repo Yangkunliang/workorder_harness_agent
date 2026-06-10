@@ -250,14 +250,21 @@ uv pip install -r requirements.txt
 
 ### 3. 配置环境变量
 
-编辑 `.env` 文件，确认以下配置正确：
+复制 `.env.example` 为 `.env`，并根据实际环境修改配置：
 
-```env
-REDIS_HOST=127.0.0.1
-REDIS_PORT=6379
-LLM_API_KEY=your-dashscope-api-key
-LLM_MODEL=qwen-plus
+```bash
+cp .env.example .env
 ```
+
+主要配置项说明：
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `SERVER_PORT` | 8000 | 服务端口号 |
+| `REDIS_HOST` | 127.0.0.1 | Redis 地址 |
+| `REDIS_PORT` | 6379 | Redis 端口 |
+| `LLM_API_KEY` | - | 阿里云 DashScope API Key |
+| `LLM_MODEL` | qwen-plus | LLM 模型名称 |
 
 ### 4. 启动服务
 
@@ -273,17 +280,19 @@ python main.py
 [Startup] 工具路由注册完成
 [Startup] 正在初始化 LangGraph checkpointer...
 [Startup] LangGraph checkpointer 初始化完成
-[Startup] 服务启动完成，端口: 8090
+[Startup] 服务启动完成，端口: 8000
 ```
 
 ### 5. 访问前端
 
-打开浏览器访问：`http://localhost:8000/static/index.html`
+打开浏览器访问：`http://localhost:${SERVER_PORT}/static/index.html`
+
+**提示**：端口号由 `.env` 文件中的 `SERVER_PORT` 配置决定，默认值为 8000。
 
 ### 6. 接口调用
 
 ```bash
-# 健康检查
+# 健康检查（端口根据 .env 配置的 SERVER_PORT 调整，默认为 8000）
 curl http://localhost:8000/health
 
 # 对话接口（同一 session_id 多轮调用，历史自动维护）
@@ -291,6 +300,8 @@ curl -X POST http://localhost:8000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"session_id": "test-001", "user_id": "user001", "message": "查询我的工单"}'
 ```
+
+> **注意**：以上示例使用默认端口 8000，实际调用时请根据 `.env` 文件中配置的 `SERVER_PORT` 值调整。
 
 ---
 
