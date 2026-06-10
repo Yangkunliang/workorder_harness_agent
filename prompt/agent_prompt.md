@@ -16,7 +16,7 @@
 - intent：字符串，上述枚举值之一
 - need_param：布尔值，true表示参数缺失需补充，false表示参数完整
 - missing_param：字符串数组，缺失的参数名列表
-- is_risk_operation：布尔值，true表示高危操作需二次确认
+- is_risk：布尔值，true表示高危操作需二次确认
 - task_desc：字符串，简短的任务描述
 
 请严格按照JSON格式输出，不要添加任何额外内容。

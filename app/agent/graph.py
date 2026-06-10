@@ -3,6 +3,7 @@ LangGraph 状态机流程图
 - 定义节点和边
 - 分支判断逻辑
 - 流程组装
+- 使用 AsyncRedisSaver 作为 checkpointer，实现多轮会话持久化
 """
 from typing import Any
 
@@ -115,24 +116,57 @@ def build_agent_graph() -> StateGraph:
     return workflow
 
 
-# ==================== 编译图 ====================
+# ==================== 编译图（注入 checkpointer） ====================
 
-agent_graph = build_agent_graph().compile()
+def _build_compiled_graph():
+    """
+    编译 Agent 图并注入 AsyncRedisSaver checkpointer。
+    checkpointer 以 thread_id（即 session_id）为 key，自动完成：
+      - 每次调用前从 Redis 恢复上一轮 checkpoint
+      - 每次调用后将完整 state 持久化回 Redis
+    """
+    from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+    from app.database.redis_client import get_redis_client
+
+    checkpointer = AsyncRedisSaver(redis_client=get_redis_client())
+    return build_agent_graph().compile(checkpointer=checkpointer)
 
 
-async def run_agent(state: AgentState) -> dict[str, Any]:
-    """运行 Agent 状态机"""
+agent_graph = _build_compiled_graph()
+
+
+async def setup_checkpointer() -> None:
+    """
+    初始化 checkpointer 所需的 Redis 索引结构。
+    必须在服务启动阶段（lifespan）调用一次，否则首次写入会报错。
+    """
+    await agent_graph.checkpointer.asetup()
+
+
+async def run_agent(session_id: str, state: AgentState) -> dict[str, Any]:
+    """
+    运行 Agent 状态机。
+
+    Args:
+        session_id: 会话 ID，作为 checkpointer 的 thread_id
+        state: 本轮输入状态（仅包含当前轮次的增量字段）
+
+    Returns:
+        执行完成后的完整 state dict
+    """
+    config = {"configurable": {"thread_id": session_id}}
+
     business_logger.info(
         "Agent 执行开始",
-        session_id=state.get("session_id", ""),
+        session_id=session_id,
         user_message=state.get("user_message", ""),
     )
 
-    result = await agent_graph.ainvoke(state)
+    result = await agent_graph.ainvoke(state, config=config)
 
     business_logger.info(
         "Agent 执行完成",
-        session_id=state.get("session_id", ""),
+        session_id=session_id,
         response_message=result.get("response_message", "")[:100],
     )
 

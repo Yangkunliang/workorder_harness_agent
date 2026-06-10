@@ -2,6 +2,7 @@
 LangGraph 状态定义
 - 会话状态管理
 - 意图、参数、确认状态等
+- 注意：chat_history 已移除，由 checkpointer 统一管理多轮上下文
 """
 from typing import Any, Optional
 from typing_extensions import TypedDict
@@ -42,5 +43,7 @@ class AgentState(TypedDict, total=False):
     # 最终输出
     response_message: str
 
-    # 历史消息（用于 LLM 上下文）
-    chat_history: list[dict[str, str]]
+    # ⚠️ chat_history 已移除
+    # 多轮会话历史由 LangGraph checkpointer（AsyncRedisSaver）自动管理，
+    # 通过 thread_id=session_id 在 Redis 中持久化和恢复，无需手动维护。
+    # 如需在节点内读取历史消息，请通过 checkpointer 或迁移至 MessagesState。

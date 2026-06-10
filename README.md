@@ -8,12 +8,13 @@
 
 | 分类 | 技术 | 版本 | 说明 |
 |------|------|------|------|
-| Web 框架 | FastAPI | 0.111+ | 高性能异步 Web 框架 |
+| Web 框架 | FastAPI | 0.115+ | 高性能异步 Web 框架 |
 | Agent 编排 | LangChain + LangGraph | 0.2+ | 大语言模型编排与状态机 |
+| 会话持久化 | langgraph-checkpoint-redis | 0.0.1+ | LangGraph 官方 Redis checkpointer，多轮会话自动持久化 |
 | 配置中心 | Nacos | 2.3+ | 工具注册中心、配置管理 |
 | 数据库 | MySQL | 8.0+ | 业务数据存储 |
 | ORM | SQLAlchemy | 2.0+ | 异步数据库访问 |
-| 缓存 | Redis | 7.0+ | 会话记忆、限流、缓存 |
+| 缓存 | Redis | 7.0+ | 会话 checkpoint 存储、限流、缓存 |
 | 参数校验 | Pydantic | 2.10+ | 强类型数据校验 |
 | 容错组件 | tenacity + pybreaker | - | 分级重试、熔断器 |
 | 运行环境 | Python | 3.10+ | 编程语言 |
@@ -30,8 +31,38 @@
 | `app/agent/` | LangGraph 状态机，意图识别、流程编排 | 业务编排层 |
 | `app/harness/` | 统一管控：校验、路由、注册中心、容错 | `@Gateway` + 中间件 |
 | `app/services/` | 业务逻辑实现 | `@Service` |
-| `app/database/` | ORM 数据访问 | `@Repository` / `@Entity` |
+| `app/database/` | ORM 数据访问 + Redis 客户端单例 | `@Repository` / `@Entity` |
 | `app/config/` | 外部配置加载 | `@Configuration` |
+
+---
+
+## 会话持久化机制
+
+本项目使用 **LangGraph 官方 `AsyncRedisSaver` checkpointer** 管理多轮会话历史，取代手动 load/save 模式。
+
+### 工作原理
+
+```
+旧方式：routes.py 手动 lrange → 塞入 state → 跑 graph → 手动 rpush
+新方式：graph.compile(checkpointer=AsyncRedisSaver) → 传 thread_id → graph 自动恢复/持久化
+```
+
+- **`thread_id`** 使用 `session_id`，每个会话独立隔离
+- **启动时** `asetup()` 在 Redis 中创建所需索引结构
+- **每次调用前** checkpointer 自动从 Redis 恢复上一轮完整 state
+- **每次调用后** checkpointer 自动将新 state 写回 Redis
+- Redis 客户端通过 `app/database/redis_client.py` 单例复用，避免重复建连
+
+### 对比旧方式
+
+| 维度 | 旧方式（手动） | 新方式（checkpointer） |
+|------|--------------|----------------------|
+| 历史存储 | 手动 `rpush` | checkpointer 自动管理 |
+| 历史读取 | 手动 `lrange` 后塞 state | `thread_id` 自动恢复 |
+| 连接管理 | 每次请求新建连接 | 单例异步连接复用 |
+| 中间状态 | 丢失 | checkpoint 完整保存 |
+| TTL 管理 | 手动 `expire` | checkpointer 内置 |
+| 代码复杂度 | routes.py 臃肿 | routes.py 只管 HTTP 层 |
 
 ---
 
@@ -89,19 +120,21 @@ sequenceDiagram
     participant Client as 前端页面 (static/index.html)
     participant API as FastAPI<br/>app/api/routes.py
     participant Agent as LangGraph<br/>app/agent/graph.py
+    participant Checkpointer as AsyncRedisSaver<br/>(checkpointer)
     participant Harness as Harness管控层<br/>app/harness/*
     participant Service as 业务服务<br/>app/services/*
-    participant Redis as Redis缓存
+    participant Redis as Redis
     participant MySQL as MySQL数据库
-    participant Nacos as Nacos配置中心
     
     Client->>API: POST /api/chat
     Note right of Client: {"session_id", "user_id", "message"}
     
-    API->>Redis: 获取会话历史
-    Redis-->>API: 返回历史消息
-    
-    API->>Agent: 调用状态机入口
+    API->>Agent: 调用 run_agent(session_id, state)
+    Agent->>Checkpointer: 以 thread_id=session_id 恢复上一轮 checkpoint
+    Checkpointer->>Redis: GET checkpoint:{session_id}
+    Redis-->>Checkpointer: 返回上一轮完整 state（首次为空）
+    Checkpointer-->>Agent: 注入历史 state
+
     Agent->>Agent: 意图识别节点 (Intent Recognition)
     
     alt 普通操作 (查询/创建/催办)
@@ -113,17 +146,17 @@ sequenceDiagram
         Service->>MySQL: 数据库操作
         MySQL-->>Service: 返回数据
         Service-->>Harness: 返回结果
-        
         Harness->>Agent: 返回执行结果
         Agent->>Agent: 结果格式化节点
         
     else 高危操作 (关闭/删除)
         Agent->>Client: 返回确认请求
-        Client->>API: POST /api/chat (确认)
-        API->>Agent: 用户确认
-        
-        Agent->>Redis: 检查限流
-        Redis-->>Agent: 返回限流状态
+        Agent->>Checkpointer: 持久化当前 state（含待确认意图）
+        Checkpointer->>Redis: SET checkpoint:{session_id}
+
+        Client->>API: POST /api/chat (确认/取消)
+        API->>Agent: 调用 run_agent(session_id, confirm_state)
+        Agent->>Checkpointer: 恢复上一轮 checkpoint（含待确认意图）
         
         Agent->>Harness: 路由到对应工具
         Harness->>Service: 执行高危操作
@@ -131,14 +164,12 @@ sequenceDiagram
         Service->>MySQL: 写入审计日志
         MySQL-->>Service: 返回结果
         Service-->>Harness: 返回结果
-        
         Harness->>Agent: 返回执行结果
     end
     
+    Agent->>Checkpointer: 持久化本轮完整 state
+    Checkpointer->>Redis: SET checkpoint:{session_id}
     Agent->>API: 返回响应
-    API->>Redis: 保存会话历史
-    Redis-->>API: 保存成功
-    
     API->>Client: 返回响应
     Note right of Client: {"success", "data": {"content"}}
 ```
@@ -197,8 +228,13 @@ stateDiagram-v2
 ### 1. 启动基础设施
 
 ```bash
-# MySQL (已配置)
-# Redis (使用现有 dify-redis)
+# MySQL
+docker run -d --name mysql8 -p 3306:3306 \
+  -e MYSQL_ROOT_PASSWORD=root123 -e MYSQL_DATABASE=agent_workorder \
+  mysql:8.0 --character-set-server=utf8mb4
+
+# Redis
+docker run -d --name redis -p 6379:6379 redis:7-alpine
 
 # Nacos
 docker run -d --name nacos -e MODE=standalone -p 8848:8848 nacos/nacos-server:v2.3.2
@@ -207,17 +243,37 @@ docker run -d --name nacos -e MODE=standalone -p 8848:8848 nacos/nacos-server:v2
 ### 2. 安装依赖
 
 ```bash
-pip3 install -r requirements.txt
+pip install -r requirements.txt
+# 或使用 uv
+uv pip install -r requirements.txt
 ```
 
 ### 3. 配置环境变量
 
-编辑 `.env` 文件，配置数据库、缓存、Nacos 连接信息。
+编辑 `.env` 文件，确认以下配置正确：
+
+```env
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+LLM_API_KEY=your-dashscope-api-key
+LLM_MODEL=qwen-plus
+```
 
 ### 4. 启动服务
 
 ```bash
-python3 main.py
+python main.py
+```
+
+启动成功后会看到：
+```
+[Startup] 数据库初始化完成
+[Startup] Nacos 工具配置加载完成
+[Startup] 工具注册中心初始化完成
+[Startup] 工具路由注册完成
+[Startup] 正在初始化 LangGraph checkpointer...
+[Startup] LangGraph checkpointer 初始化完成
+[Startup] 服务启动完成，端口: 8090
 ```
 
 ### 5. 访问前端
@@ -230,7 +286,7 @@ python3 main.py
 # 健康检查
 curl http://localhost:8000/health
 
-# 对话接口
+# 对话接口（同一 session_id 多轮调用，历史自动维护）
 curl -X POST http://localhost:8000/api/chat \
   -H "Content-Type: application/json" \
   -d '{"session_id": "test-001", "user_id": "user001", "message": "查询我的工单"}'
@@ -254,17 +310,18 @@ curl -X POST http://localhost:8000/api/chat \
 workorder_harness_agent/
 ├── app/
 │   ├── agent/           # LangGraph 状态机
-│   │   ├── graph.py     # 状态机流程定义
+│   │   ├── graph.py     # 状态机流程定义（含 checkpointer 注入）
 │   │   ├── nodes.py     # 流程节点实现
-│   │   └── state.py     # 状态定义
+│   │   └── state.py     # 状态定义（不含 chat_history）
 │   ├── api/             # REST API 层
-│   │   └── routes.py    # 接口路由
+│   │   └── routes.py    # 接口路由（无手动 load/save history）
 │   ├── config/          # 配置管理
 │   │   └── nacos_config.py
 │   ├── database/        # 数据访问层
 │   │   ├── models.py    # ORM 模型
 │   │   ├── session.py   # 数据库会话
-│   │   └── init_data.py # 初始化数据
+│   │   ├── init_data.py # 初始化数据
+│   │   └── redis_client.py  # Redis 异步客户端单例（供 checkpointer 使用）
 │   ├── harness/         # Harness 管控层
 │   │   ├── validator.py # 输入校验
 │   │   ├── router.py    # 工具路由
@@ -280,7 +337,7 @@ workorder_harness_agent/
 ├── static/              # 静态资源 (前端页面)
 ├── tests/               # 测试用例
 ├── .env                 # 环境变量
-├── main.py              # 启动入口
+├── main.py              # 启动入口（含 checkpointer setup）
 ├── requirements.txt     # 依赖列表
 └── README.md            # 项目文档
 ```

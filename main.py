@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config.nacos_config import nacos_manager
 from app.database.session import init_database
+from app.database.redis_client import close_redis_client
 from app.api.routes import router
 
 
@@ -41,7 +42,6 @@ async def lifespan(app: FastAPI):
             except RuntimeError:
                 loop = None
             if loop and loop.is_running():
-                # 在已有事件循环中，创建任务
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     future = pool.submit(
@@ -60,12 +60,19 @@ async def lifespan(app: FastAPI):
     tool_router.register("workorder_delete", _make_handler("workorder_delete"))
     print("[Startup] 工具路由注册完成")
 
-    print("[Startup] 服务启动完成，端口: 8000")
+    # 初始化 LangGraph checkpointer（在 Redis 中创建所需索引结构）
+    print("[Startup] 正在初始化 LangGraph checkpointer...")
+    from app.agent.graph import setup_checkpointer
+    await setup_checkpointer()
+    print("[Startup] LangGraph checkpointer 初始化完成")
+
+    print("[Startup] 服务启动完成，端口: 8090")
     yield
 
     # 关闭阶段
     print("[Shutdown] 正在清理资源...")
     await nacos_manager.close()
+    await close_redis_client()
     print("[Shutdown] 资源清理完成")
 
 
