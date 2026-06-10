@@ -2,6 +2,7 @@
 响应模型定义
 """
 from typing import Any, Optional
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -24,13 +25,33 @@ class ApiResponse(BaseModel):
             "example": {
                 "code": "00000",
                 "message": "操作成功",
-                "data": None,
+                "data": {},
+                "timestamp": 1699999999,
             }
         }
     )
     code: str = Field(default=ErrorCode.SUCCESS, description="错误码")
     message: str = Field(default="操作成功", description="错误信息")
     data: Optional[Any] = Field(default=None, description="业务数据")
+    timestamp: int = Field(default_factory=lambda: int(datetime.now().timestamp()), description="响应时间戳")
+
+    @classmethod
+    def success(cls, data: Any = None, message: str = "操作成功") -> "ApiResponse":
+        """创建成功响应"""
+        return cls(
+            code=ErrorCode.SUCCESS,
+            message=message,
+            data=data,
+        )
+
+    @classmethod
+    def error(cls, code: str, message: str) -> "ApiResponse":
+        """创建错误响应"""
+        return cls(
+            code=code,
+            message=message,
+            data=None,
+        )
 
 
 class WorkorderResponse(BaseModel):

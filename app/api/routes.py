@@ -14,10 +14,10 @@ from app.common.logger import business_logger
 router = APIRouter()
 
 
-@router.get("/health")
-async def health_check() -> dict[str, str]:
+@router.get("/health", response_model=ApiResponse)
+async def health_check() -> ApiResponse:
     """健康检查接口"""
-    return {"status": "healthy", "service": "workorder-harness-agent"}
+    return ApiResponse.success(data={"status": "healthy", "service": "workorder-harness-agent"})
 
 
 @router.post("/api/chat", response_model=ApiResponse)
@@ -65,9 +65,7 @@ async def chat(request: ChatRequest) -> ApiResponse:
         # 运行 Agent（checkpointer 自动处理会话历史的恢复与持久化）
         result = await run_agent(request.session_id, state)
 
-        return ApiResponse(
-            code=ErrorCode.SUCCESS,
-            message="操作成功",
+        return ApiResponse.success(
             data=ChatResponse(
                 session_id=request.session_id,
                 message=result.get("response_message", ""),
@@ -79,15 +77,10 @@ async def chat(request: ChatRequest) -> ApiResponse:
 
     except BaseAppException as e:
         business_logger.error(f"业务异常: {e.message}", error_code=e.error_code)
-        return ApiResponse(
-            code=e.error_code,
-            message=e.message,
-            data=None,
-        )
+        return ApiResponse.error(code=e.error_code, message=e.message)
     except Exception as e:
         business_logger.error(f"未知异常: {str(e)}")
-        return ApiResponse(
+        return ApiResponse.error(
             code=ErrorCode.UNKNOWN_ERROR,
             message=ERROR_MESSAGES.get(ErrorCode.UNKNOWN_ERROR, "未知错误"),
-            data=None,
         )

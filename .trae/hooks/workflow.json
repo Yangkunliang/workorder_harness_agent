@@ -1,0 +1,61 @@
+{
+  "version": "1.0",
+  "modes": {
+    "interactive": {
+      "name": "交互式模式",
+      "description": "每步完成后通知用户并等待确认",
+      "require_confirmation": true,
+      "auto_proceed": false
+    },
+    "auto": {
+      "name": "自动模式",
+      "description": "全流程自动执行，无需人工干预",
+      "require_confirmation": false,
+      "auto_proceed": true
+    }
+  },
+  "hooks": {
+    "after_prd_created": {
+      "next_skills": ["ui-designer"],
+      "notification": "PRD 文档已生成！\n路径: docs/prd/{module}/{date}_{feature}_v{version}.md\n是否继续进行 UI/UX 设计？"
+    },
+    "after_ui_design": {
+      "next_skills": ["tech-designer"],
+      "notification": "UI 设计规范已生成！\n路径: docs/ui-design/{module}/{date}_{page}_design_v{version}.md\n是否继续进行技术设计？"
+    },
+    "after_tech_design": {
+      "next_skills": ["task-planner"],
+      "notification": "技术设计文档已生成！\n路径: docs/tech/{module}/{date}_{module}_v{version}.md\n是否继续进行任务拆解？"
+    },
+    "after_tasks_created": {
+      "next_skills": ["task-executor"],
+      "notification": "任务列表已生成！\n路径: docs/tasks/{module}/{date}_{feature}_v{version}.json\n任务数: {task_count} 个\n是否继续执行任务？"
+    },
+    "after_task_execution": {
+      "next_skills": ["unit-tester"],
+      "notification": "代码实现完成！\n修改文件: {modified_files}\n是否继续执行单元测试？"
+    },
+    "after_unit_test": {
+      "next_skills": ["e2e-runner"],
+      "notification": "单元测试完成！\n通过率: {pass_rate}%\n是否继续执行 E2E 测试？"
+    },
+    "after_e2e_test": {
+      "next_skills": ["github-deploy"],
+      "notification": "E2E 测试完成！\n通过率: {pass_rate}%\n失败用例: {failed_count} 个\n是否继续部署到 GitHub？"
+    },
+    "after_deploy": {
+      "next_skills": [],
+      "notification": "部署完成！\n项目已推送至: {repo_url}\n分支: {branch}\n\n🎉 工作流执行完成！"
+    }
+  },
+  "transitions": [
+    {"from": "prd", "to": "ui-design", "condition": "prd_valid"},
+    {"from": "ui-design", "to": "tech", "condition": "design_valid"},
+    {"from": "tech", "to": "tasks", "condition": "tech_valid"},
+    {"from": "tasks", "to": "execution", "condition": "tasks_valid"},
+    {"from": "execution", "to": "unit-test", "condition": "code_valid"},
+    {"from": "unit-test", "to": "e2e-test", "condition": "unit_pass"},
+    {"from": "e2e-test", "to": "deploy", "condition": "e2e_pass"},
+    {"from": "*", "to": "rollback", "condition": "any_failed"}
+  ]
+}
