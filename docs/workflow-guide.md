@@ -9,10 +9,62 @@
 ## 工作流架构
 
 ```
-指挥官 → 产品经理 → UI/UX设计师 → 技术设计师 → 任务规划师 → 任务执行者 → 测试执行者
-              ↓           ↓            ↓            ↓             ↓            ↓
-         docs/prd/   docs/ui-design/  docs/tech/   docs/tasks/    src/       tests/
+指挥官 → 产品经理 → UI/UX设计师 → 技术设计师 → 任务规划师 → 任务执行者 → 单元测试 → Bug修复(循环) → E2E测试 → 部署
+              ↓           ↓            ↓            ↓             ↓            ↓         ↓(循环)        ↓         ↓
+         docs/prd/   docs/ui-design/  docs/tech/   docs/tasks/    src/       tests/     fix/        e2e/     github
 ```
+
+### 状态机流程图
+
+```
+┌─────────┐     prd_valid      ┌─────────┐   design_valid   ┌─────────┐
+│   PRD   │ ─────────────────> │   UI    │ ───────────────> │  Tech   │
+└─────────┘                   │ Design  │                  │ Design  │
+                              └─────────┘                  └─────────┘
+                                     │                            │
+                                     ▼                            ▼
+                            ┌─────────┐                  ┌─────────┐
+                            │  Tasks  │ ── tasks_valid ──> │Execute  │
+                            └─────────┘                  └─────────┘
+                                                                      │
+                    ┌────────────────────────────────────────────────┘
+                    │
+                    ▼
+            ┌───────────────┐
+            │   单元测试     │
+            │               │
+            │  ┌─────────┐  │
+            │  │测试通过? │  │
+            │  └────┬────┘  │
+            │       │       │
+            │  通过  │  失败 │
+            │       ▼       ▼
+            │   [E2E]   [Bug修复]
+            │   测试    ─────────┐
+            │       │           │
+            │       ▼           ▼
+            │   ┌─────────┐ 重新测试
+            │   │E2E通过? │
+            │   └────┬────┘
+            │        │
+            │   通过 │ 失败
+            │        ▼
+            │   [Deploy]  [Bug修复]
+            │      │          │
+            │      ▼          ▼
+            │   [完成]    重新测试
+            └───────────────┘
+```
+
+### 测试-修复循环机制
+
+工作流支持自动化测试-修复-重新测试循环：
+
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| max_retry_count | 5 | 最大自动重试次数 |
+| retry_delay_seconds | 5 | 重试间隔（秒） |
+| test_pass_threshold | 100 | 测试通过阈值（%） |
 
 ---
 
@@ -25,9 +77,39 @@
 | tech-designer | 技术设计师 | 技术方案设计 | 内置模板 | `docs/tech/xxx.md` |
 | task-planner | 任务规划师 | 任务拆解 | 内置模板 | `docs/tasks/xxx.json` |
 | task-executor | 任务执行者 | 代码实现 | 内置模板 | `src/` |
+| code-review | 代码审查师 | 代码分析和自动修复 | **建议外部集成** | 修复后的代码 |
 | unit-tester | 单元测试工程师 | 单元测试编写 | 内置模板 | `tests/unit/xxx.py` |
 | e2e-runner | E2E 测试执行者 | 端到端测试 | 内置模板 | `docs/tests/xxx.md` |
 | github-deploy | GitHub 部署 | 代码部署 | 内置模板 | - |
+
+### Skill 获取建议
+
+| Skill | 来源 | 推荐度 | 说明 |
+|-------|------|--------|------|
+| product-manager | 内置 | ★★★★★ | 已完成 |
+| ui-designer | 外部 ui-ux-pro-max | ★★★★★ | 已集成 |
+| tech-designer | 内置 | ★★★★★ | 已完成 |
+| task-planner | 内置 | ★★★★★ | 已完成 |
+| task-executor | 内置 | ★★★★★ | 已完成 |
+| **code-review** | **建议外部** | ★★★★☆ | **待集成** |
+| unit-tester | 内置 | ★★★★★ | 已完成 |
+| e2e-runner | 内置 | ★★★★☆ | 基础功能 |
+| github-deploy | 内置 | ★★★★★ | 已完成 |
+
+**code-review Skill 推荐方案：**
+
+1. **使用外部现成 Skill**
+   - 推荐 GitHub 上的 `trae-code-review-skill`
+   - 或类似的代码审查工具
+
+2. **自研方案**
+   - 基于静态分析工具（flake8, pylint, mypy）
+   - 结合 LLM 进行智能代码审查
+   - 支持自动修复常见问题
+
+3. **临时方案**
+   - 在 hooks 中跳过自动修复，通知人工审查
+   - 配置 `max_retry_count: 0` 禁用自动修复
 
 ---
 

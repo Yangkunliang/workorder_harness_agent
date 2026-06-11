@@ -69,23 +69,23 @@ async def init_mock_data() -> None:
 
         for i in range(25):
             days_ago = random.randint(0, 30)
-            create_time = now - timedelta(days=days_ago, hours=random.randint(0, 23))
-            workorder_id = f"WO{create_time.strftime('%Y%m%d')}{i + 1:04d}"
+            created_at = now - timedelta(days=days_ago, hours=random.randint(0, 23))
+            workorder_no = f"WO{created_at.strftime('%Y%m%d')}{i + 1:04d}"
             title = MOCK_TITLES[i % len(MOCK_TITLES)]
-            content = MOCK_CONTENTS[i % len(MOCK_CONTENTS)]
-            create_user = random.choice(MOCK_USERS)
+            description = MOCK_CONTENTS[i % len(MOCK_CONTENTS)]
+            creator = random.choice(MOCK_USERS)
 
-            # 大部分为正常状态，少量关闭
-            status = "已关闭" if i % 7 == 0 else "正常"
+            # 大部分为 pending 状态，少量 completed
+            status = "completed" if i % 7 == 0 else "pending"
 
             wo = Workorder(
-                workorder_id=workorder_id,
+                workorder_no=workorder_no,
                 title=title,
-                content=content,
-                create_user=create_user,
+                description=description,
+                creator=creator,
                 status=status,
-                create_time=create_time,
-                update_time=create_time,
+                created_at=created_at,
+                updated_at=created_at,
                 is_deleted=False,
             )
             mock_workorders.append(wo)

@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "version": "2.0",
   "modes": {
     "interactive": {
       "name": "交互式模式",
@@ -13,6 +13,11 @@
       "require_confirmation": false,
       "auto_proceed": true
     }
+  },
+  "config": {
+    "max_retry_count": 5,
+    "retry_delay_seconds": 5,
+    "test_pass_threshold": 100
   },
   "hooks": {
     "after_prd_created": {
@@ -33,19 +38,55 @@
     },
     "after_task_execution": {
       "next_skills": ["unit-tester"],
-      "notification": "代码实现完成！\n修改文件: {modified_files}\n是否继续执行单元测试？"
+      "notification": "代码实现完成！\n修改文件: {modified_files}\n开始执行单元测试..."
     },
-    "after_unit_test": {
+    "after_unit_test_pass": {
       "next_skills": ["e2e-runner"],
-      "notification": "单元测试完成！\n通过率: {pass_rate}%\n是否继续执行 E2E 测试？"
+      "notification": "✅ 单元测试全部通过！\n通过率: {pass_rate}%\n测试用例: {total_count} 个\n📄 测试报告: docs/tests/{module}/{date}_{feature}_unit_report_v{version}.md\n继续执行 E2E 测试...",
+      "generate_report": true,
+      "report_path": "docs/tests/{module}/{date}_{feature}_unit_report_v{version}.md",
+      "report_format": "markdown"
     },
-    "after_e2e_test": {
+    "after_unit_test_fail": {
+      "next_skills": ["code-review"],
+      "notification": "❌ 单元测试失败！\n通过率: {pass_rate}%\n失败用例: {failed_count} 个\n📄 测试报告: docs/tests/{module}/{date}_{feature}_unit_report_v{version}.md\n开始自动分析并修复 bug...\n重试次数: {retry_count}/{max_retries}",
+      "generate_report": true,
+      "report_path": "docs/tests/{module}/{date}_{feature}_unit_report_v{version}.md",
+      "report_format": "markdown"
+    },
+    "after_bug_fix": {
+      "next_skills": ["unit-tester"],
+      "notification": "🔧 Bug 修复完成！\n修复文件: {fixed_files}\n重新运行单元测试验证修复效果..."
+    },
+    "after_unit_test_max_retry": {
+      "next_skills": [],
+      "notification": "⚠️ 已达到最大重试次数 ({max_retries} 次)\n单元测试仍未通过，请人工介入检查\n失败用例: {failed_tests}\n错误信息: {error_details}"
+    },
+    "after_e2e_test_pass": {
       "next_skills": ["github-deploy"],
-      "notification": "E2E 测试完成！\n通过率: {pass_rate}%\n失败用例: {failed_count} 个\n是否继续部署到 GitHub？"
+      "notification": "✅ E2E 测试全部通过！\n通过率: {pass_rate}%\n测试用例: {total_count} 个\n📄 测试报告: docs/tests/{module}/{date}_{feature}_test_report_v{version}.md\n继续部署到 GitHub...",
+      "generate_report": true,
+      "report_path": "docs/tests/{module}/{date}_{feature}_test_report_v{version}.md",
+      "report_format": "markdown"
+    },
+    "after_e2e_test_fail": {
+      "next_skills": ["code-review"],
+      "notification": "❌ E2E 测试失败！\n通过率: {pass_rate}%\n失败用例: {failed_count} 个\n📄 测试报告: docs/tests/{module}/{date}_{feature}_test_report_v{version}.md\n开始自动分析并修复 bug...\n重试次数: {retry_count}/{max_retries}",
+      "generate_report": true,
+      "report_path": "docs/tests/{module}/{date}_{feature}_test_report_v{version}.md",
+      "report_format": "markdown"
+    },
+    "after_e2e_test_max_retry": {
+      "next_skills": [],
+      "notification": "⚠️ 已达到最大重试次数 ({max_retries} 次)\nE2E 测试仍未通过，请人工介入检查\n失败用例: {failed_tests}\n错误信息: {error_details}"
     },
     "after_deploy": {
       "next_skills": [],
-      "notification": "部署完成！\n项目已推送至: {repo_url}\n分支: {branch}\n\n🎉 工作流执行完成！"
+      "notification": "🎉 部署完成！\n项目已推送至: {repo_url}\n分支: {branch}\n\n✅ 工作流执行完成！\n\n📊 执行统计:\n- PRD 文档: ✅\n- UI 设计: ✅\n- 技术设计: ✅\n- 任务拆解: ✅\n- 代码实现: ✅\n- 单元测试: ✅ ({unit_pass_rate}%)\n- E2E 测试: ✅ ({e2e_pass_rate}%)\n- GitHub 部署: ✅"
+    },
+    "on_workflow_error": {
+      "next_skills": [],
+      "notification": "❌ 工作流执行失败！\n阶段: {stage}\n错误: {error}\n建议检查相关日志并手动修复"
     }
   },
   "transitions": [
@@ -55,7 +96,23 @@
     {"from": "tasks", "to": "execution", "condition": "tasks_valid"},
     {"from": "execution", "to": "unit-test", "condition": "code_valid"},
     {"from": "unit-test", "to": "e2e-test", "condition": "unit_pass"},
+    {"from": "unit-test", "to": "bug-fix", "condition": "unit_fail", "max_retry": 5},
+    {"from": "bug-fix", "to": "unit-test", "condition": "fix_applied"},
     {"from": "e2e-test", "to": "deploy", "condition": "e2e_pass"},
+    {"from": "e2e-test", "to": "bug-fix", "condition": "e2e_fail", "max_retry": 5},
+    {"from": "bug-fix", "to": "e2e-test", "condition": "fix_applied"},
     {"from": "*", "to": "rollback", "condition": "any_failed"}
-  ]
+  ],
+  "states": {
+    "prd": {"label": "产品需求", "status": "pending"},
+    "ui-design": {"label": "UI设计", "status": "pending"},
+    "tech": {"label": "技术设计", "status": "pending"},
+    "tasks": {"label": "任务拆解", "status": "pending"},
+    "execution": {"label": "代码实现", "status": "pending"},
+    "unit-test": {"label": "单元测试", "status": "pending", "retry_count": 0},
+    "bug-fix": {"label": "Bug修复", "status": "pending"},
+    "e2e-test": {"label": "E2E测试", "status": "pending", "retry_count": 0},
+    "deploy": {"label": "部署上线", "status": "pending"},
+    "rollback": {"label": "回滚", "status": "pending"}
+  }
 }

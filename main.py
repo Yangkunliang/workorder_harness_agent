@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI):
     await setup_checkpointer()
     print("[Startup] LangGraph checkpointer 初始化完成")
 
-    print(f"[Startup] 服务启动完成，端口: {port}")
+    print(f"[Startup] 服务启动完成，端口: {SERVER_PORT}")
     yield
 
     # 关闭阶段

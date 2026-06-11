@@ -101,16 +101,38 @@ docs/tasks/<模块名>/<YYYYMMDD>_<功能名>_v<版本号>.json
       "type": "feature",
       "priority": "P1",
       "effort": "M",
+      "status": "pending",
       "dependencies": [],
       "tags": ["backend", "auth"],
       "steps": [
         {
+          "index": 0,
           "title": "创建 ORM Model",
-          "detail": "创建文件路径和实现要点"
+          "detail": "创建文件路径和实现要点",
+          "status": "pending"
+        },
+        {
+          "index": 1,
+          "title": "实现 Service 层逻辑",
+          "detail": "编写业务逻辑和数据处理",
+          "status": "pending"
+        },
+        {
+          "index": 2,
+          "title": "编写 API 路由",
+          "detail": "定义接口路由和参数校验",
+          "status": "pending"
         }
       ],
       "acceptance": ["验收标准"],
-      "completed": false
+      "progress": {
+        "current_step": null,
+        "started_at": null,
+        "completed_at": null,
+        "retry_count": 0,
+        "executor": null,
+        "notes": ""
+      }
     }
   ]
 }
@@ -138,6 +160,39 @@ docs/tasks/<模块名>/<YYYYMMDD>_<功能名>_v<版本号>.json
 | P2 | 一般 |
 | P3 | 低优先级 |
 
+## 任务状态
+
+### 任务级状态
+
+| 状态 | 说明 | 触发条件 |
+|------|------|----------|
+| `pending` | 待执行 | 初始状态 |
+| `in_progress` | 执行中 | 开始执行第一个 step 时自动切换 |
+| `completed` | 已完成 | 所有 step 完成后自动切换 |
+| `blocked` | 已阻塞 | 依赖任务未完成或外部阻塞 |
+| `failed` | 执行失败 | 执行过程中出错且无法自动恢复 |
+
+### 步骤级状态
+
+| 状态 | 说明 |
+|------|------|
+| `pending` | 待执行 |
+| `in_progress` | 执行中 |
+| `completed` | 已完成 |
+| `skipped` | 已跳过（不适用于当前任务） |
+| `failed` | 执行失败 |
+
+### 进度对象（progress）字段说明
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `current_step` | `int \| null` | 当前执行到的步骤索引，null 表示未开始 |
+| `started_at` | `string \| null` | 任务开始执行时间，格式 `YYYY-MM-DD HH:MM:SS` |
+| `completed_at` | `string \| null` | 任务完成时间 |
+| `retry_count` | `int` | 已重试次数，初始为 0 |
+| `executor` | `string \| null` | 执行者标识（如 `task-executor`、`unit-tester`） |
+| `notes` | `string` | 执行备注，记录失败原因、中断原因等关键信息 |
+
 ---
 
 ## 重要规则
@@ -147,3 +202,7 @@ docs/tasks/<模块名>/<YYYYMMDD>_<功能名>_v<版本号>.json
 3. **阶段门禁**：每个阶段结束后必须等待用户确认
 4. **直接写入文件**：JSON 直接写入文件
 5. **XL 必拆**：工作量评估为 XL 的任务必须进一步拆分
+6. **进度可恢复**：每个任务必须包含 `status` 和 `progress` 对象，支持中断后从 `current_step` 恢复执行
+7. **步骤带索引**：每个 step 必须包含 `index`（从 0 开始）和 `status`，便于精确定位执行位置
+8. **状态实时回写**：任务执行过程中，执行者需实时更新 `status`、`current_step`、步骤 `status` 并写回 JSON 文件
+9. **失败留痕**：任务或步骤失败时，必须在 `progress.notes` 中记录失败原因，将状态设为 `failed`，不得静默跳过
