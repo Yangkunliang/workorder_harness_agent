@@ -4,12 +4,15 @@
 - 催办逻辑
 - 高危操作（关闭/删除）软删除实现
 - 直接操作 MySQL 数据库
+- 支持多条件查询、分页和 Redis 缓存
 """
+import hashlib
+import json
 import os
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, Tuple, List, Dict
 
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.constants import WorkorderStatus, OperationType, URGE_COOLDOWN_SECONDS
@@ -21,6 +24,7 @@ from app.common.exceptions import (
 from app.common.logger import business_logger
 from app.database.session import async_session
 from app.database.models import Workorder
+from app.utils.desensitize import desensitize_name
 
 
 class WorkorderService:
@@ -265,6 +269,169 @@ class WorkorderService:
             "create_time": wo.create_time.isoformat() if wo.create_time else "",
             "update_time": wo.update_time.isoformat() if wo.update_time else "",
         }
+
+    def _to_dict_with_desensitize(self, wo: Workorder, desensitize: bool = True) -> dict[str, Any]:
+        """ORM 对象转字典（支持脱敏）"""
+        result = {
+            "workorder_no": wo.workorder_no,
+            "title": wo.title,
+            "status": wo.status,
+            "creator": self._desensitize_creator(wo.creator) if desensitize else wo.creator,
+            "created_at": wo.created_at.isoformat() if wo.created_at else "",
+            "updated_at": wo.updated_at.isoformat() if wo.updated_at else "",
+        }
+        return result
+
+    def _to_detail_dict(self, wo: Workorder) -> dict[str, Any]:
+        """ORM 对象转详情字典（不脱敏，包含描述）"""
+        return {
+            "workorder_no": wo.workorder_no,
+            "title": wo.title,
+            "status": wo.status,
+            "creator": wo.creator,
+            "description": wo.description or "",
+            "created_at": wo.created_at.isoformat() if wo.created_at else "",
+            "updated_at": wo.updated_at.isoformat() if wo.updated_at else "",
+        }
+
+    @staticmethod
+    def _desensitize_creator(creator: str) -> str:
+        """脱敏处理创建人字段"""
+        return desensitize_name(creator)
+
+    @staticmethod
+    def _get_cache_key(filters: Dict[str, Any], page: int, size: int) -> str:
+        """生成缓存键"""
+        key_str = json.dumps({"filters": filters, "page": page, "size": size}, sort_keys=True)
+        return f"workorder:query:{hashlib.md5(key_str.encode()).hexdigest()}"
+
+    def _get_redis_client(self):
+        """获取 Redis 客户端"""
+        try:
+            import redis as redis_lib
+            return redis_lib.Redis(
+                host=os.getenv("REDIS_HOST", "127.0.0.1"),
+                port=int(os.getenv("REDIS_PORT", "6379")),
+                password=os.getenv("REDIS_PASSWORD") or None,
+                db=int(os.getenv("REDIS_DB", "0")),
+            )
+        except Exception as e:
+            business_logger.warning(f"Redis 连接失败: {str(e)}")
+            return None
+
+    async def query_workorder(
+        self,
+        filters: Dict[str, Any],
+        page: int = 1,
+        size: int = 20,
+        desensitize: bool = True
+    ) -> Dict[str, Any]:
+        """
+        查询工单列表（带缓存）
+        
+        :param filters: 查询条件字典
+        :param page: 页码（从1开始）
+        :param size: 每页条数
+        :param desensitize: 是否脱敏
+        :return: {"list": [...], "pagination": {...}}
+        """
+        cache_key = self._get_cache_key(filters, page, size)
+        redis_client = self._get_redis_client()
+
+        # 尝试从缓存获取
+        if redis_client:
+            cached_data = redis_client.get(cache_key)
+            if cached_data:
+                business_logger.info(f"缓存命中: {cache_key}")
+                return json.loads(cached_data)
+
+        # 从数据库查询
+        async with async_session() as db:
+            query = select(Workorder).filter(Workorder.is_deleted == False)
+
+            # 工单编号精确查询（支持逗号分隔多个）
+            workorder_no = filters.get("workorder_no")
+            if workorder_no:
+                nos = [n.strip() for n in workorder_no.split(",") if n.strip()]
+                if nos:
+                    query = query.filter(Workorder.workorder_no.in_(nos))
+
+            # 创建人前缀模糊匹配
+            creator = filters.get("creator")
+            if creator:
+                query = query.filter(Workorder.creator.like(f"{creator}%"))
+
+            # 创建时间范围查询
+            start_date = filters.get("start_date")
+            end_date = filters.get("end_date")
+            if start_date:
+                start_datetime = datetime.strptime(start_date, "%Y-%m-%d")
+                query = query.filter(Workorder.created_at >= start_datetime)
+            if end_date:
+                end_datetime = datetime.strptime(end_date, "%Y-%m-%d")
+                end_datetime = end_datetime.replace(hour=23, minute=59, second=59)
+                query = query.filter(Workorder.created_at <= end_datetime)
+
+            # 分页
+            offset = (page - 1) * size
+            query = query.order_by(Workorder.created_at.desc()).offset(offset).limit(size)
+
+            result = await db.execute(query)
+            workorders = result.scalars().all()
+
+            # 查询总数
+            count_query = select(func.count(Workorder.id)).filter(Workorder.is_deleted == False)
+            if workorder_no:
+                count_query = count_query.filter(Workorder.workorder_no.in_(nos))
+            if creator:
+                count_query = count_query.filter(Workorder.creator.like(f"{creator}%"))
+            if start_date:
+                count_query = count_query.filter(Workorder.created_at >= start_datetime)
+            if end_date:
+                count_query = count_query.filter(Workorder.created_at <= end_datetime)
+
+            count_result = await db.execute(count_query)
+            total = count_result.scalar() or 0
+
+        # 构建返回结果
+        result = {
+            "list": [self._to_dict_with_desensitize(wo, desensitize) for wo in workorders],
+            "pagination": {
+                "page": page,
+                "size": size,
+                "total": total,
+                "pages": (total + size - 1) // size
+            }
+        }
+
+        # 写入缓存（TTL 5分钟）
+        if redis_client:
+            try:
+                redis_client.setex(cache_key, 300, json.dumps(result))
+            except Exception as e:
+                business_logger.warning(f"缓存写入失败: {str(e)}")
+
+        return result
+
+    async def get_workorder_detail(self, workorder_no: str) -> Dict[str, Any]:
+        """
+        获取工单详情（不脱敏）
+        
+        :param workorder_no: 工单编号
+        :return: 工单详情字典
+        """
+        async with async_session() as db:
+            query = select(Workorder).filter(
+                Workorder.workorder_no == workorder_no,
+                Workorder.is_deleted == False
+            )
+            result = await db.execute(query)
+            wo = result.scalar_one_or_none()
+
+            if not wo:
+                raise WorkorderNotFoundException(workorder_no)
+
+            return self._to_detail_dict(wo)
 
 
 # 全局服务实例

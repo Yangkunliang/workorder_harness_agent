@@ -54,7 +54,7 @@ async def get_db() -> AsyncSession:
 async def init_database() -> None:
     """初始化数据库：建表 + 初始化模拟数据"""
     # 先导入 models，确保 Base.metadata 包含所有表定义
-    from app.database import models
+    from app.database.models import Workorder, OperationAuditLog
     
     # 使用异步引擎创建表
     async with engine.begin() as conn:
